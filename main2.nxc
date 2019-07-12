@@ -139,7 +139,7 @@ void init(){
  *******************************/
 void startJudge(){
   int i = 0;
-  while(true){ //はじめの3回の音を無視す�
+  while(true){ //はじめの3回の音を無視す�
     if(Sensor(SENSOR_SOUND0) > 75)
       i++;
     if(i == 3)
