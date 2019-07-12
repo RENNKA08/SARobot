@@ -1,0 +1,284 @@
+/*******
+ *定義 *
+ *******/
+/**************
+ *speedに関連 *
+ **************/
+#define NOMAL_SPEED 40
+#define HIGH_SPEED 50
+#define LOW_SPEED 25
+#define STOP_SPEED 0
+
+/***************
+ *モータに関連 *
+ ***************/
+#define STRAIGHT OUT_BC
+#define TURN_RIGHT OUT_B
+#define TURN_LEFT OUT_C
+
+/***************
+ *センサに関連 *
+ ***************/
+#define SENSOR_SOUND0 IN_4
+#define SENSOR_RIGHT_LIGHT IN_2
+#define SENSOR_LEFT_LIGHT IN_3
+
+/*****************
+ *音センサに関連 *
+ *****************/
+#define STOP_BY_SOUND 75
+
+/*****************
+ *光センサに関連 *
+ *****************/
+#define LIGHT_WHITE 45
+#define LIGHT_PURPLE 38
+#define LIGHT_BLACK 30
+
+/***************
+ *コースに関連 *
+ ***************/
+#define WALL LIGHT_WHITE
+#define ROAD LIGHT_BLACK
+#define ITEM_BOX LIGHT_PURPLE
+
+/*************
+ *回転に関連 *
+ *************/
+#define AVOID_RIGHT_WALL 5
+#define AVOID_LEFT_WALL 5
+
+
+
+/***************
+ *モータの管理 *
+ ***************/
+mutex motorMutex;
+
+
+
+/***************
+ *関数呼び出し *
+ ***************/
+void run(int speed);
+void dush();
+void delay();
+void stop0();
+void turn360();
+void sound();
+void init();
+void startJudge();
+
+
+
+/*************
+ *関数の実装 *
+ *************/
+/***************
+ *直進する関数 *
+ ***************/
+void run(int speed){
+  OnFwd(STRAIGHT, speed);
+  Wait(100);
+}
+
+/********************
+ *1秒間加速する関数 *
+ ********************/
+void dush(){
+  run(HIGH_SPEED);
+  Wait(1000);
+}
+
+/********************
+ *1秒間減速する関数 *
+ ********************/
+void delay(){
+  run(LOW_SPEED);
+  Wait(1000);
+}
+
+/********************
+ *1秒間停止する関数 *
+ ********************/
+void stop0(){
+  run(STOP_SPEED);
+  Wait(1000);
+}
+
+/****************************
+ *その場で360度回転する関数 *
+ ****************************/
+ void turn360(){
+   //OnFwdSync(STRAIGHT, 50, 360);
+   RotateMotor(TURN_LEFT,50,1440);
+   Wait(100);
+ }
+
+/***************
+ *音を出す関数 *
+ ***************/
+ void sound(){
+   PlayToneEx(TONE_C5, 500, 4, false);
+ }
+
+/*************************
+ *main関数で呼び出す関数 *
+ *************************/
+/***************************
+ *各センサの準備をする関数 *
+ ***************************/
+void init(){
+  SetSensorLight(SENSOR_RIGHT_LIGHT);//右の光センサ準備
+  SetSensorLight(SENSOR_LEFT_LIGHT);//左の光センサ準備
+  SetSensorSound(SENSOR_SOUND0);//音センサの準備
+}
+
+/*******************************
+ *スタート時の挙動に関する関数 *
+ *******************************/
+void startJudge(){
+  int i = 0;
+  while(true){ //はじめの3回の音を無視す�
+    if(Sensor(SENSOR_SOUND0) > 75)
+      i++;
+    if(i == 3)
+      break;
+  }
+  while(Sensor(SENSOR_SOUND0) > 90){
+    int time = CurrentTick() % 10; //ランダムの代用
+    if(time < 7 ) //加速ダッシュする
+      dush();
+    else if(time == 9) //停止する
+      stop0();
+    else //通常状態で走り出す
+      run(NOMAL_SPEED);
+  }
+}
+
+
+
+/*****************
+ *task関数の実装 *
+ *****************/
+/*********************
+ *走行中に関するtask関数 *
+ *********************/
+/***************
+ *コースアウト *
+ ***************/
+task courseOutRight(){ //右側のコースアウト
+  while(true){
+    Acquire(motorMutex);
+      if(Sensor(SENSOR_RIGHT_LIGHT) > WALL){// //右側のセンサが壁を認識したら
+        while(Sensor(SENSOR_RIGHT_LIGHT) > WALL){ // //右側のセンサが道を認識するまで
+          RotateMotor(TURN_LEFT,5,AVOID_RIGHT_WALL);
+          Wait(100);
+          //TextOut(14,LCD_LINE5,"true");
+          if(Sensor(SENSOR_LEFT_LIGHT) > WALL)
+            break;
+        }
+        //TextOut(14,LCD_LINE5,"true");
+      }else{
+        TextOut(14,LCD_LINE5,"false");
+      }
+    Release(motorMutex);
+  }
+}
+task courseOutLeft(){ //左側のコースアウト
+  while(true){
+    Acquire(motorMutex);
+      if(Sensor(SENSOR_LEFT_LIGHT) > WALL) //左側のセンサが壁を認識したら
+        while(Sensor(SENSOR_LEFT_LIGHT) > WALL){ //左側のセンサが道を認識するまで
+          RotateMotor(TURN_RIGHT,5,AVOID_LEFT_WALL);
+          Wait(100);
+          if(Sensor(SENSOR_RIGHT_LIGHT) > WALL)
+            break;
+        }
+    Release(motorMutex);
+  }
+}
+
+/*********************
+ *音を聞いて停止する *
+ *********************/
+task stoppedSound(){
+  while(true){
+    Acquire(motorMutex);
+    if(Sensor(SENSOR_SOUND0) > STOP_BY_SOUND)
+      stop0();
+    Release(motorMutex);
+  }
+}
+
+/*****************
+ *通常状態の走行 *
+ *****************/
+task go(){
+  while(true){
+    Acquire(motorMutex);
+      run(NOMAL_SPEED);
+    Release(motorMutex);
+  }
+}
+
+/*************************
+ *アイテムボックスの処理 *
+ *************************/
+task itemBox(){
+  while(true){
+    Acquire(motorMutex);
+      if(Sensor(SENSOR_LEFT_LIGHT) > ITEM_BOX &&
+          Sensor(SENSOR_RIGHT_LIGHT) > ITEM_BOX){
+        int time = CurrentTick() % 5 + 1;
+        switch(time){
+          case 1: //停止する
+            stop0();
+            run(NOMAL_SPEED);
+            break;
+          case 2: //加速する
+            dush();
+            break;
+          case 3: //減速する
+            delay();
+            break;
+          case 4: //音を出す
+            sound();
+            break;
+          case 5: //回転する
+            //turn360();
+            //run(NOMAL_SPEED);
+            break;
+        }
+        NumOut(14,LCD_LINE7,time);
+      }
+    Release(motorMutex);
+  }
+}
+
+task debag(){
+     ClearScreen();
+     while(true){
+       int x = Sensor(SENSOR_LEFT_LIGHT);
+       int y = Sensor(SENSOR_RIGHT_LIGHT);
+       int z = Sensor(SENSOR_SOUND0);
+       NumOut(14,LCD_LINE3,x);
+       NumOut(14,LCD_LINE4,y);
+       NumOut(14,LCD_LINE6,z);
+     }
+}
+
+/***********
+ *main関数 *
+ ***********/
+task main(){
+  init();
+  startJudge();
+
+  start debag;
+  start go;
+  start courseOutRight;
+  start courseOutLeft;
+  start itemBox;
+  start stoppedSound;
+}
